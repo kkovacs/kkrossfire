@@ -1,0 +1,82 @@
+# AGENTS.md
+
+Guidance for AI agents working on this project. LLMs can already program; these are the landmines.
+
+## What this is
+
+"KKrossfire" — a Chrome Manifest V3 extension: a side-panel chat that controls one browser tab through an agent loop (LLM ↔ tools), using OpenRouter.
+
+## Architecture (stable decisions)
+
+- **Two halves.** `sidepanel.html` / `sidepanel.js` is UI only (chat + settings). `background.js` (service worker) owns the agent loop, tool execution, and all OpenRouter calls.
+- **Agent loop.** Call the LLM with tools → execute the returned tool calls in the workspace tab → append results as `tool` messages → repeat until the model replies with plain content (no tool calls) or `MAX_STEPS`. There is no `finish` tool; "no tool calls" *is* the stop signal. Tool results live in `llmMessages`, so the conversation history *is* the memory across navigations. Do not add a separate memory store.
+- **Context block.** Every LLM call injects, right after `system` and ahead of the history: "Current tab: URL (title)", a page overview (description, heading outline, counts, nav links from `nav, [role="navigation"]`, suggested main-content selector), and the last 15 visited pages (`PAGE_HISTORY`). The overview is memoized in a module-level `overviewCache` keyed by `tab.url` and recomputed only when the URL changes — that covers first-turn-on-page, `navigate`, back, and manual navigation with no per-turn injection cost and no invalidation hooks in `navigate`/`reset`. `rememberPage` caps the visited-pages trail at `PAGE_HISTORY` and dedupes consecutive same-URL reads, so `extract_text` offsets and same-page tool runs don't churn the context. Content links (e.g. search results) are deliberately *not* in the overview; the model uses `extract_links`. Staleness hole marked `XXX`: a SPA that rewrites content without changing the URL.
+- **Memory & prompt caching.** The full `llmMessages` history — every tool result included — is re-sent verbatim on every call; there is no pruning or summarization, so per-turn tokens grow with each step (bounded by `MAX_STEPS` and the ~8000-char `extract_text` cap). Because the context block sits ahead of the history and changes on `navigate`/`extract_text` turns, the cacheable prefix collapses to `system` on those turns. Deliberate: don't drop/shorten tool results to save tokens — cross-page recall is the product; if cost ever matters, the lossless lever is moving the context block to the *end* of the messages array, not compaction.
+- **`extract_text` shape.** Defaults to the main content (`article, main, [role="main"], #content`, else `body`) so the ~8000-char cap isn't spent on nav/footer boilerplate; its `offset` param pages past the first chunk when `truncated` is true.
+- **`run_js` result capture.** The tool returns the completion value of the last expression, not only an explicit `return`. User code is evaled as a block inside an async IIFE (`return eval('{ ' + code + ' }')`) so bare expressions, IIFEs, and promises resolve, and per-call `let`/`const`/`var` don't leak. A top-level `return` is a parse error, so it safely falls back to an async-IIFE function body (see landmine 1). Bare top-level `await` without `return` is a known gap — use `return await ...`.
+- **Streaming.** `callLLMStream` reads the SSE response body, posts each content chunk to the panel as `{type:'delta'}`, and assembles fragmented tool-call deltas into full `tool_calls`. A `{type:'delta_cancel'}` discards the bubble if a preamble was streamed before tool calls. Only the final answer streams; tool steps show as static status lines.
+- **Workspace tab.** Pinned to the active tab at session start (first Send / "Reset"); all tools target it. This lets the user switch tabs without confusing the agent. Shown in the panel header. No visual badge marks the workspace; do not add per-tab side-panel sessions without a product decision.
+- **State & messaging.** Session state is a module singleton in the SW, mirrored to `chrome.storage.session` (reset `running` to false on cold load). A long-lived `chrome.runtime.connect` port from the panel keeps the SW alive and carries all messages. State carries a `phase` field (`null` | `'llm'` | `'tool'`) that drives the panel's wait indicators.
+- **Panel UI.** Settings is a compact gear beside the brand; `Reset` starts a fresh conversation and rebinds the workspace. The prompt stays editable during runs while Send remains disabled, and the prompt is focused when a run finishes. Send clears the prompt optimistically; if the SW can't start the run (closed workspace tab, no active tab) it replies `{type:'restore_prompt', text}` so the panel puts the message back in the input and it survives the following Reset. The header uses a grid so long workspace titles truncate before the controls.
+- **Settings.** `apiKey`, `model`, `apiUrl`, and `systemPrompt` live in `chrome.storage.local`; `config.js` holds defaults (`apiKey` is `''` — no bundled key; the user must set one). `model` defaults to `openrouter/auto`; `apiUrl` defaults to `https://openrouter.ai/api/v1` and is treated as a base URL (the agent appends `/chat/completions`); `systemPrompt` defaults to the built-in browsing prompt and, once saved, is used verbatim — even an empty value overrides the default.
+- **The provider is NOT always OpenRouter.** `apiUrl` is any OpenAI-compatible base URL; the default merely happens to be OpenRouter. Never assume OpenRouter-specific behavior in code: no `/key` endpoint, no OpenRouter-only `/models` response fields (e.g. `architecture.input_modalities`), no OpenRouter-specific error bodies. Anything provider-specific must degrade gracefully on generic endpoints.
+- **Test connection.** Sends the panel's current (unsaved) inputs to the SW and runs exactly one real `POST {apiUrl}/chat/completions` (`"This is a test. Just say 'OK'."`, `max_tokens: 10`) to validate the key and model on any OpenAI-compatible provider. Do not use `/models` to test the key (OpenRouter serves it tokenless) or `/key` (OpenRouter-specific, absent on generic providers).
+- **Auto-scroll.** The chat follows the bottom only while the user is near it (within ~40px) or when forced (initial load, after Send). `scrollBottom()` implements the gate; full re-renders restore the prior `scrollTop` when the user has scrolled up, so streaming chunks and tool-state re-renders don't yank the view.
+- **Deliberate v1 choices.** Final answer streams; tool steps do not. `run_js` always enabled (no toggle). Chrome-only (Safari has no side-panel API).
+
+## Landmines
+
+1. **`eval` / `new Function` is banned in MV3 — on every page, not just CSP-strict ones.** The isolated world uses the extension's own CSP (`script-src 'self'`, no `unsafe-eval`), and Chrome rejects adding `unsafe-eval` to `content_security_policy.extension_pages`. Injected scripts therefore cannot eval user code anywhere. `run_js` must go through `chrome.debugger` → `Runtime.evaluate` with `allowUnsafeEvalBlockedByCSP: true` (see `runJsViaDebugger()`).
+2. **`chrome.debugger` consequences.** Needs the `debugger` permission; shows Chrome's "debugging this browser" infobar while attached (attach/detach per call, always in `finally`); fails if DevTools is already attached to that tab.
+3. **`hidden` attribute vs CSS.** A `display: flex` rule silently overrides the `hidden` attribute. Keep the global `[hidden] { display: none !important; }` rule in `sidepanel.html`. When testing show/hide, assert computed visibility, never the attribute.
+4. **Chat re-render wipes transient DOM.** The panel re-renders the whole conversation on every state message. Transient feedback (save confirmation, errors) must use the `#toast` element, not appended chat nodes. The typing-dots and streaming-answer bubbles are likewise transient: never stored in `conversation`, but re-created after each render from `phase` + the `streaming` flag.
+5. **Search is composed, not a tool.** There is no `search` tool; the default system prompt (editable in Settings) tells the model to `navigate` to `https://html.duckduckgo.com/html/?q=<query>` and read results with `extract_links`/`extract_text`. Always use that HTML endpoint — `duckduckgo.com/?q=` is a JS SPA whose body is empty to `extract_text`. Google was removed: its `/sorry` CAPTCHA bot-blocks datacenter IPs and its `/url?q=` redirects needed bespoke decoding.
+6. **`chrome.scripting.executeScript({ func })` serializes the function** via `toString()` — injected functions must be self-contained (no closures over SW variables).
+7. **`innerText` on a detached node is `textContent`.** A `cloneNode` of the body is not rendered, so `innerText` on it silently drops `display:none`/layout filtering. To strip boilerplate, scope the read to the main-content element (or walk the live DOM) — never clone-then-`innerText`.
+
+## Testing
+
+For a quick build validation, run:
+
+```bash
+bun build background.js --target browser --outdir /tmp/kkiosk-check
+```
+
+Harness lives in `/persist/plugin/tests/` (Playwright + Chromium + Xvfb). Run headed under `xvfb-run`:
+
+```bash
+cd /persist/plugin/tests
+
+# deterministic run_js cases — no LLM/API key needed
+xvfb-run -a node test_runjs_cases.mjs
+
+# LLM-backed tests — need OPENROUTER_API_KEY in tests/.env
+xvfb-run -a node test_runjs.mjs
+
+# CSP test — start the fixture first (serves http://127.0.0.1:8099/)
+python3 csp_server.py &
+xvfb-run -a node test_csp.mjs
+```
+
+Other `test_*.mjs` files (`test_settings`, `test_stream`, `test_indicators`) follow the same `node` pattern.
+
+- Tests read the throwaway API key from `OPENROUTER_API_KEY` in `tests/.env` (gitignored); `seed.mjs` (`seedKey`) writes it into extension storage and `test_helpers.mjs` provides `getExtensionIds(context)`.
+- `test_runjs_cases.mjs` is deterministic (no LLM): it drives the SW's `run_js` directly via the `{type:'run_js_test', code}` runtime-message hook and asserts the primary eval/fallback paths.
+- Load the extension with `--disable-extensions-except=<dir> --load-extension=<dir>` in a `launchPersistentContext`.
+- The real side-panel chrome UI can't be driven headlessly; open `chrome-extension://<id>/sidepanel.html` as a tab instead (same `chrome.*` access and message path).
+- Unpacked extension ID is deterministic from the absolute path: `sha256(path)` first 32 hex chars, mapped `0–f → a–p`.
+- Playwright passes `--disable-infobars`, so the debugger infobar won't appear in tests.
+
+## Links
+
+- Side panel API: https://developer.chrome.com/docs/extensions/reference/api/sidePanel
+- Runtime messaging (`chrome.runtime.connect` / `sendMessage`): https://developer.chrome.com/docs/extensions/reference/api/runtime
+- CDP `Runtime.evaluate`: https://chromedevtools.github.io/devtools-protocol/tot/Runtime/#method-evaluate
+- Action API: https://developer.chrome.com/docs/extensions/reference/api/action
+- Tabs API: https://developer.chrome.com/docs/extensions/reference/api/tabs
+- scripting.executeScript: https://developer.chrome.com/docs/extensions/reference/api/scripting
+- debugger API: https://developer.chrome.com/docs/extensions/reference/api/debugger
+- MV3 CSP: https://developer.chrome.com/docs/extensions/reference/manifest/content-security-policy
+- OpenRouter API: https://openrouter.ai/docs/api-reference/overview
+- OpenRouter prompt caching: https://openrouter.ai/docs/features/prompt-caching
+- Playwright: https://playwright.dev/docs/intro
