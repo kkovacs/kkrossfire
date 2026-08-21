@@ -184,12 +184,100 @@ async function copyMarkdown(content) {
   }
 }
 
+// Render assistant text: inline markdown (bold, code) plus GFM tables.
+// A table is consecutive '|'-rows whose 2nd line is a separator; it renders
+// as <table> as soon as the separator appears, so it works mid-stream.
 function format(text) {
-  let s = escapeHtml(String(text || ''));
-  s = s.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
-  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
-  s = s.replace(/\n/g, '<br>');
-  return s;
+  const lines = String(text || '').split('\n');
+  let out = '';
+  let i = 0;
+  while (i < lines.length) {
+    if (isTableStart(lines, i)) {
+      out += renderTable(lines, i);
+      i += 2; // skip header + separator
+      while (i < lines.length && isTableRow(lines[i])) i++; // skip data rows
+    } else {
+      // gather text up to the next table; render with the classic inline pass
+      const start = i;
+      while (i < lines.length && !isTableStart(lines, i)) i++;
+      out += inlineBlock(lines.slice(start, i).join('\n'));
+    }
+  }
+  return out;
+}
+
+// Inline pass for text: escape, then bold + code, then newlines to <br>.
+function inlineBlock(s) {
+  let t = escapeHtml(s);
+  t = t.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+  t = t.replace(/`([^`]+)`/g, '<code>$1</code>');
+  return t.replace(/\n/g, '<br>');
+}
+
+// Inline pass for a single table cell (no newline handling).
+function inlineCell(s) {
+  return inlineBlock(s == null ? '' : s);
+}
+
+function isTableRow(line) {
+  return line.trimStart().startsWith('|'); // XXX: requires leading '|' (no pipe-less GFM)
+}
+
+function isSeparator(line) {
+  if (!isTableRow(line)) return false;
+  const cells = splitRow(line);
+  return cells.length > 0 && cells.every((c) => /^:?-+:?$/.test(c.trim()));
+}
+
+function isTableStart(lines, i) {
+  return isTableRow(lines[i]) && i + 1 < lines.length && isSeparator(lines[i + 1]);
+}
+
+// Split a '|'-delimited row into trimmed cells, tolerating missing edge pipes.
+function splitRow(line) {
+  let s = line.trim();
+  if (s.startsWith('|')) s = s.slice(1);
+  if (s.endsWith('|')) s = s.slice(0, -1);
+  return s.split('|').map((c) => c.trim());
+}
+
+function alignOf(cell) {
+  const c = cell.trim();
+  const left = c.startsWith(':');
+  const right = c.endsWith(':');
+  if (left && right) return 'center';
+  if (right) return 'right';
+  if (left) return 'left';
+  return '';
+}
+
+function alignAttr(a) {
+  return a ? ` style="text-align:${a}"` : '';
+}
+
+function renderTable(lines, i) {
+  const header = splitRow(lines[i]);
+  const aligns = splitRow(lines[i + 1]).map(alignOf);
+  let j = i + 2;
+  const body = [];
+  while (j < lines.length && isTableRow(lines[j])) {
+    body.push(splitRow(lines[j]));
+    j++;
+  }
+  let html = '<div class="tableWrap"><table><thead><tr>';
+  header.forEach((c, k) => {
+    html += `<th${alignAttr(aligns[k])}>${inlineCell(c)}</th>`;
+  });
+  html += '</tr></thead><tbody>';
+  body.forEach((row) => {
+    html += '<tr>';
+    // pad/truncate to header width so columns stay stable on malformed input
+    for (let k = 0; k < header.length; k++) {
+      html += `<td${alignAttr(aligns[k])}>${inlineCell(row[k])}</td>`;
+    }
+    html += '</tr>';
+  });
+  return html + '</tbody></table></div>';
 }
 
 function escapeHtml(s) {
