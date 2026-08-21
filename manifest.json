@@ -17,10 +17,17 @@
   "commands": {
     "open-panel": {
       "suggested_key": {
+        "default": "Ctrl+Shift+9",
+        "mac": "Command+Shift+9"
+      },
+      "description": "Toggle KKrossfire"
+    },
+    "reset": {
+      "suggested_key": {
         "default": "Ctrl+Shift+0",
         "mac": "Command+Shift+0"
       },
-      "description": "Toggle KKrossfire"
+      "description": "Reset to current tab"
     }
   }
 }

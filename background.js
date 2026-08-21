@@ -868,6 +868,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 });
 
+async function resetSession() {
+  const s = await loadState();
+  s.conversation = [];
+  s.llmMessages = [];
+  s.pages = [];
+  s.stop = true;
+  s.phase = null;
+  const [t] = await chrome.tabs.query({ active: true, currentWindow: true });
+  s.workspaceTabId = t ? t.id : null;
+  await commit();
+}
+
 async function onMessage(msg) {
   const s = await loadState();
   switch (msg.type) {
@@ -924,17 +936,9 @@ async function onMessage(msg) {
       await commit();
       break;
     }
-    case 'reset': {
-      s.conversation = [];
-      s.llmMessages = [];
-      s.pages = [];
-      s.stop = true;
-      s.phase = null;
-      const [t] = await chrome.tabs.query({ active: true, currentWindow: true });
-      s.workspaceTabId = t ? t.id : null;
-      await commit();
+    case 'reset':
+      await resetSession();
       break;
-    }
     case 'save_settings': {
       const cur = await loadSettings();
       for (const k of SETTINGS_KEYS) {
@@ -994,8 +998,16 @@ chrome.windows.onFocusChanged.addListener((windowId) => {
 });
 
 chrome.commands.onCommand.addListener((cmd) => {
-  if (cmd !== 'open-panel') return;
-  if (port) { post({ type: 'close' }); return; } // toggle: panel already open → ask it to close
-  if (activeWindowId == null) return; // SW just started; next press works
-  chrome.sidePanel.open({ windowId: activeWindowId }).catch(() => {});
+  if (cmd === 'open-panel') {
+    if (port) { post({ type: 'close' }); return; } // toggle: panel already open → ask it to close
+    if (activeWindowId == null) return; // SW just started; next press works
+    chrome.sidePanel.open({ windowId: activeWindowId }).catch(() => {});
+  } else if (cmd === 'reset') {
+    // Open synchronously while we still have the keyboard gesture;
+    // reset state in parallel. The panel will fetch the fresh state on connect.
+    if (!port && activeWindowId != null) {
+      chrome.sidePanel.open({ windowId: activeWindowId }).catch(() => {});
+    }
+    resetSession().catch(() => {});
+  }
 });
