@@ -29,7 +29,8 @@ let phase = null;
 let workspaceTabId = null;
 let workspaceAway = true;
 let firstRender = true; // initial load should land at the bottom
-let forceScroll = false; // user just sent; follow the new message to the bottom
+let forceScroll = false; // one-shot: scroll to bottom when the user's message is added, then release
+let isFollowing = true;  // intent to follow the bottom; cleared only when the user scrolls up
 
 function connect() {
   port = chrome.runtime.connect({ name: 'kkiosk' });
@@ -56,10 +57,10 @@ function onMessage(msg) {
       streamingEl.className = 'msg assistant';
       els.chat.appendChild(streamingEl);
     }
-    // Measure "near bottom" BEFORE the chunk grows the bubble. scrollBottom()
-    // re-checks after insertion, so a single delta taller than ~40px would see
-    // itself as "not near the bottom" and permanently stop following.
-    const stick = nearBottom();
+    // Re-pin only if we're still following the bottom. This intent survives
+    // layout shifts (e.g. the debugger infobar) that would fool a fresh
+    // near-bottom probe; a real scroll-up has already cleared isFollowing.
+    const stick = isFollowing;
     streamingEl.innerHTML = format(streamText.trim());
     if (stick) els.chat.scrollTop = els.chat.scrollHeight;
   } else if (msg.type === 'delta_cancel') {
@@ -102,7 +103,7 @@ function render(msg) {
   }
   updateButtons();
   if (Array.isArray(msg.conversation)) {
-    const stick = nearBottom();
+    const stick = isFollowing; // use follow intent, not a fresh near-bottom probe
     const prevTop = els.chat.scrollTop;
     streamingEl = null;
     streamText = '';
@@ -120,7 +121,7 @@ function render(msg) {
   if (firstRender && hasKey) els.prompt.focus(); // autofocus on panel open
   if (wasRunning && !running && hasKey) els.prompt.focus();
   firstRender = false;
-  forceScroll = false;
+  forceScroll = false; // consumed: later appends follow the near-bottom band only
 }
 
 function populateSettings() {
@@ -284,13 +285,29 @@ function escapeHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function followBand() {
+  // How close (px) to the bottom counts as "follow along". Kept at the
+  // original flat 40px: once the user's message has landed they want to be
+  // able to scroll away freely, and a wider band would keep pulling them back.
+  return 40;
+}
+
+function distanceFromBottom() {
+  return els.chat.scrollHeight - els.chat.scrollTop - els.chat.clientHeight;
+}
+
 function nearBottom() {
-  return els.chat.scrollHeight - els.chat.scrollTop - els.chat.clientHeight < 40;
+  return distanceFromBottom() < followBand();
 }
 
 function scrollBottom() {
   if (nearBottom()) els.chat.scrollTop = els.chat.scrollHeight;
 }
+
+// Maintain follow intent from the user's own scrolling: at the bottom => follow,
+// scrolled up past the band => release. A layout shift (debugger infobar,
+// window resize) preserves scrollTop, so it never clears this flag by itself.
+els.chat.addEventListener('scroll', () => { isFollowing = nearBottom(); });
 
 function showTyping() {
   hideTyping();
@@ -332,7 +349,8 @@ function send() {
   if (running || !port) return;
   els.prompt.value = '';
   running = true;
-  forceScroll = true;
+  forceScroll = true; // land at the bottom when the user's message is added, then let go
+  isFollowing = true; // keep following from here until the user deliberately scrolls up
   updateButtons();
   port.postMessage({ type: 'run', text });
 }
