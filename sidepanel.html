@@ -21,12 +21,13 @@
     .buttons { grid-column: 2; grid-row: 1; display: flex; gap: 6px; align-self: start; }
     .iconButton { background: transparent; color: #aaa; padding: 2px; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; }
     .iconButton:hover, .iconButton:focus-visible { background: #3a3c42; color: #fff; }
-    #settings { padding: 10px 12px; background: #26272b; border-bottom: 1px solid #333; display: flex; flex-direction: column; gap: 6px; }
+    #settings { padding: 10px 12px 6px; background: #26272b; border-bottom: 1px solid #333; display: flex; flex-direction: column; gap: 6px; }
     #settings label { font-size: 12px; color: #bbb; display: flex; flex-direction: column; gap: 3px; }
     #settings label.check { flex-direction: row; align-items: center; gap: 6px; }
     .settingsRow { display: flex; gap: 6px; align-items: center; }
     .settingsHint { font-size: 11px; color: #8a8f98; }
-    #settingsStatus { font-size: 11px; color: #8a8f98; min-height: 14px; word-break: break-word; }
+    #settingsStatus { font-size: 11px; color: #8a8f98; word-break: break-word; }
+    #settingsStatus:empty { display: none; }
     #settingsStatus.ok { color: #7ee081; }
     #settingsStatus.error { color: #e06c6c; }
     input[type="text"], input[type="password"], textarea {
@@ -96,8 +97,8 @@
       <button id="saveSettings">Save</button>
       <button id="testConnection" class="secondary">Test connection</button>
     </div>
-    <small class="settingsHint">Change the hotkey at chrome://extensions/shortcuts</small>
     <span id="settingsStatus"></span>
+    <small class="settingsHint">Change the hotkey at chrome://extensions/shortcuts</small>
   </section>
 
   <main id="chat"></main>
