@@ -15,6 +15,7 @@ Guidance for AI agents working on this project. LLMs can already program; these 
 - **`extract_text` shape.** Defaults to the main content (`article, main, [role="main"], #content`, else `body`) so the ~8000-char cap isn't spent on nav/footer boilerplate; its `offset` param pages past the first chunk when `truncated` is true.
 - **`run_js` result capture.** The tool returns the completion value of the last expression, not only an explicit `return`. User code is evaled as a block inside an async IIFE (`return eval('{ ' + code + ' }')`) so bare expressions, IIFEs, and promises resolve, and per-call `let`/`const`/`var` don't leak. A top-level `return` is a parse error, so it safely falls back to an async-IIFE function body (see landmine 1). Bare top-level `await` without `return` is a known gap — use `return await ...`.
 - **Streaming.** `callLLMStream` reads the SSE response body, posts each content chunk to the panel as `{type:'delta'}`, and assembles fragmented tool-call deltas into full `tool_calls`. A `{type:'delta_cancel'}` discards the bubble if a preamble was streamed before tool calls. Only the final answer streams; tool steps show as static status lines.
+- **Markdown rendering.** The panel's `format()` (`sidepanel.js`) turns assistant text into HTML: `**bold**`, `` `code` ``, and GFM tables. A table is a run of `|`-delimited rows whose second line is a separator (`| --- | :--: | ---: |`, with optional `:` for left/center/right); it renders as `<table>` as soon as the separator appears, so it works mid-stream, supports multiple tables per bubble, and pads ragged/malformed rows to the header width (all cell text HTML-escaped). Requires a leading `|` on rows (no pipe-less GFM). `Copy Markdown` copies raw `content`, so tables stay pasteable as text.
 - **Workspace tab.** Pinned to the active tab at session start (first Send / "Reset"); all tools target it. This lets the user switch tabs without confusing the agent. Shown in the panel header. No visual badge marks the workspace; do not add per-tab side-panel sessions without a product decision.
 - **State & messaging.** Session state is a module singleton in the SW, mirrored to `chrome.storage.session` (reset `running` to false on cold load). A long-lived `chrome.runtime.connect` port from the panel keeps the SW alive and carries all messages. State carries a `phase` field (`null` | `'llm'` | `'tool'`) that drives the panel's wait indicators.
 - **Panel UI.** Settings is a compact gear beside the brand; `Reset` starts a fresh conversation and rebinds the workspace. The prompt stays editable during runs while Send remains disabled, and the prompt is focused when a run finishes. Send clears the prompt optimistically; if the SW can't start the run (closed workspace tab, no active tab) it replies `{type:'restore_prompt', text}` so the panel puts the message back in the input and it survives the following Reset. The header uses a grid so long workspace titles truncate before the controls.
@@ -46,13 +47,16 @@ For a quick build validation, run:
 bun build background.js --target browser --outdir /tmp/kkiosk-check
 ```
 
-Harness lives in `/persist/plugin/tests/` (Playwright + Chromium + Xvfb). Run headed under `xvfb-run`:
+Harness lives in `/persist/kkrossfire/tests/` (Playwright + Chromium + Xvfb). Run headed under `xvfb-run`:
 
 ```bash
-cd /persist/plugin/tests
+cd /persist/kkrossfire/tests
 
 # deterministic run_js cases — no LLM/API key needed
 xvfb-run -a node test_runjs_cases.mjs
+
+# deterministic markdown-table rendering — no LLM/API key needed
+xvfb-run -a node test_markdown_table.mjs
 
 # LLM-backed tests — need OPENROUTER_API_KEY in tests/.env
 xvfb-run -a node test_runjs.mjs
@@ -66,6 +70,7 @@ Other `test_*.mjs` files (`test_settings`, `test_stream`, `test_indicators`) fol
 
 - Tests read the throwaway API key from `OPENROUTER_API_KEY` in `tests/.env` (gitignored); `seed.mjs` (`seedKey`) writes it into extension storage and `test_helpers.mjs` provides `getExtensionIds(context)`.
 - `test_runjs_cases.mjs` is deterministic (no LLM): it drives the SW's `run_js` directly via the `{type:'run_js_test', code}` runtime-message hook and asserts the primary eval/fallback paths.
+- `test_markdown_table.mjs` is deterministic (no LLM): it opens `sidepanel.html` as a tab and calls the global `format()` directly, asserting on the produced table HTML and the live-DOM mount.
 - Load the extension with `--disable-extensions-except=<dir> --load-extension=<dir>` in a `launchPersistentContext`.
 - The real side-panel chrome UI can't be driven headlessly; open `chrome-extension://<id>/sidepanel.html` as a tab instead (same `chrome.*` access and message path).
 - Unpacked extension ID is deterministic from the absolute path: `sha256(path)` first 32 hex chars, mapped `0–f → a–p`.
