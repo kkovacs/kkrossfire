@@ -10,6 +10,14 @@ An AI that browses the web for you. Ask it to research, compare, or look somethi
 
 Inspired by [badlogic's Sitegeist](https://github.com/badlogic/sitegeist), but simpler.
 
+Some use cases for the brave and brilliant:
+
+- **Dig up information** — it is happy to go site-hopping for you. It has memory of what pages it visited and what did it read there in a session.
+- **Fill out forms for you** — you better ask it not to submit automaticaly. These things are agressive :)
+- **Extract data from webpages** - it can run JS, it can examine and modify the DOM, attach event handlers, etc.
+- **Write you SQL** and run it, if you have a web-based SQL tool, like DuckDB UI 🦆
+- **Program in python** in JupyterLab or Marimo 🐍
+
 ## Setup
 
 1. Load the folder as an unpacked extension (`chrome://extensions` → Developer mode → **Load unpacked**).
