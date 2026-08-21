@@ -309,6 +309,22 @@ function scrollBottom() {
 // window resize) preserves scrollTop, so it never clears this flag by itself.
 els.chat.addEventListener('scroll', () => { isFollowing = nearBottom(); });
 
+// On container resize (debugger infobar, window resize, settings toggle) the
+// browser keeps scrollTop in pixels, so the bottom content drifts and a gap
+// opens. If we're following, snap to the very bottom; otherwise shift scrollTop
+// by the height delta to keep the bottom content glued (the top of the visible
+// content slides) so a reader's view isn't yanked.
+let lastChatH = els.chat.clientHeight;
+new ResizeObserver(() => {
+  const h = els.chat.clientHeight;
+  const d = lastChatH - h; // >0 when the panel shrank (bar appeared)
+  if (d !== 0) {
+    if (isFollowing) els.chat.scrollTop = els.chat.scrollHeight; // pinned: stay at bottom
+    else els.chat.scrollTop += d; // not following: keep bottom content glued, top slides
+  }
+  lastChatH = h;
+}).observe(els.chat);
+
 function showTyping() {
   hideTyping();
   thinkingEl = document.createElement('div');
