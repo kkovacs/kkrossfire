@@ -6,6 +6,8 @@ A Chrome extension that gives AI full control (!) of a browser tab.
 
 An AI that browses the web for you. Ask it to research, compare, or look something up — it drives one browser tab on its own and comes back with an answer.
 
+![KKrossfire side panel screenshot](assets/kkrossfire_screenshot.png)
+
 Inspired by [badlogic's Sitegeist](https://github.com/badlogic/sitegeist), but simpler.
 
 ## Setup
