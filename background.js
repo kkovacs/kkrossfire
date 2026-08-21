@@ -708,12 +708,12 @@ async function callLLMStream(settings, s, onDelta) {
   } catch (e) {
     clearInterval(stopTimer);
     if (s.stop) throw e;
-    throw new Error('Could not reach OpenRouter (' + ((e && e.message) || e) + '). Check your network/VPN/firewall and that https://openrouter.ai loads in a normal tab.');
+    throw new Error('Could not reach the API (' + ((e && e.message) || e) + '). Check your network/VPN/firewall and that your API URL loads in a normal tab.');
   }
   if (!resp.ok) {
     clearInterval(stopTimer);
     const t = await resp.text();
-    throw new Error('OpenRouter HTTP ' + resp.status + ': ' + t.slice(0, 400));
+    throw new Error('API HTTP ' + resp.status + ': ' + t.slice(0, 400));
   }
 
   const reader = resp.body.getReader();
@@ -789,7 +789,7 @@ async function runAgent(prompt) {
   if (!settings.apiKey) {
     s.running = false;
     await commit();
-    post({ type: 'error', text: 'Set your OpenRouter API key in settings first.' });
+    post({ type: 'error', text: 'Set your API key in settings first.' });
     return;
   }
   s.running = true;
