@@ -13,7 +13,7 @@ Inspired by [badlogic's Sitegeist](https://github.com/badlogic/sitegeist), but s
 ## Setup
 
 1. Load the folder as an unpacked extension (`chrome://extensions` → Developer mode → **Load unpacked**).
-2. Open the panel (toolbar icon, or `Ctrl+Shift+0` / `Cmd+Shift+0`).
+2. Open the panel (toolbar icon, or `Ctrl+Shift+9` / `Cmd+Shift+9`). Reset and rebind to the current tab with `Ctrl+Shift+0` / `Cmd+Shift+0`.
 3. Click the gear and paste any OpenAI-compatible API URL + KEY.
 
 That's it. The model and API endpoint default to OpenRouter; point the endpoint at any OpenAI-compatible server if you prefer.
@@ -23,7 +23,7 @@ That's it. The model and API endpoint default to OpenRouter; point the endpoint 
 - Type what you want done. Hit **Send**.
 - The AI pins the current tab as its workspace and does the legwork there — searches, opens pages, reads them.
 - The final answer streams in as it's written; tool steps show as plain status lines.
-- **Reset** starts a fresh conversation and rebinds the workspace to whichever tab is active.
+- **Reset** starts a fresh conversation and rebinds the workspace to whichever tab is active (shortcut: `Ctrl+Shift+0` / `Cmd+Shift+0`).
 - Hover a user message to delete it and everything after it; hover an assistant message to copy its Markdown.
 - No history.
 
