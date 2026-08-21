@@ -147,6 +147,12 @@ function appendMsg(role, content, index) {
     const actions = document.createElement('div');
     actions.className = 'msgActions';
     actions.appendChild(actionButton('×', 'Delete from here', () => {
+      // Empty box: restore the deleted turn as a draft so it can be re-edited.
+      if (els.prompt.value.trim() === '') {
+        els.prompt.value = content;
+        updateButtons();
+        els.prompt.focus();
+      }
       if (port) port.postMessage({ type: 'delete_from', index });
     }));
     div.appendChild(actions);
