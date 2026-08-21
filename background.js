@@ -866,6 +866,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       .catch((e) => sendResponse({ ok: false, error: String((e && e.message) || e) }));
     return true; // async response
   }
+  if (msg.type === 'set_state') {
+    // Test-only hook: replace the SW's in-memory + persisted state with the
+    // provided snapshot. Lets the harness seed a conversation fixture without
+    // racing the SW's loadState cache (which fires on tabs.onActivated when
+    // chrome://extensions is navigated). Do not call from production code.
+    state = (msg.state && typeof msg.state === 'object') ? msg.state : freshState();
+    saveState()
+      .then(() => sendResponse({ ok: true }))
+      .catch((e) => sendResponse({ ok: false, error: String((e && e.message) || e) }));
+    return true; // async response
+  }
 });
 
 async function resetSession() {

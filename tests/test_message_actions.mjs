@@ -27,12 +27,15 @@ try {
   const [extId] = await getExtensionIds(context);
   if (!extId) throw new Error('No extension loaded');
 
-  // Seed a complete multi-turn history before the panel connects.
+  // Seed a complete multi-turn history before the panel connects. Goes
+  // through the SW's set_state hook (rather than writing storage.session
+  // directly) because the SW caches state at module load and an external
+  // write is shadowed by the cached value seen on get_state.
   const seed = await context.newPage();
   await seed.goto(`chrome-extension://${extId}/manifest.json`);
   await seed.evaluate(async () => {
     await chrome.storage.local.set({ apiKey: 'test-key' });
-    await chrome.storage.session.set({ state: {
+    await chrome.runtime.sendMessage({ type: 'set_state', state: {
       conversation: [
         { role: 'user', content: 'first question' },
         { role: 'assistant', content: '**first answer**' },
