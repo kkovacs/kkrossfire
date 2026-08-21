@@ -4,19 +4,20 @@
 
 A Chrome extension that gives AI full control (!) of a browser tab.
 
-An AI that browses the web for you. Ask it to research, compare, or look something up — it drives one browser tab on its own and comes back with an answer.
+An AI that browses the web for you. Some use cases for the brave and brilliant:
+
+- **Dig up information:** it is happy to go site-hopping for you. Inside the session, it has memory of what pages it visited and what did it read there.
+- **Fill out forms for you** you better ask it not to submit automaticaly. These things are agressive 😅
+- **Extract data from webpages:** it can run JS, it can examine and modify the DOM, attach event handlers, etc.
+- **Write and run you SQL** in DuckDB UI 🦆 or [shell.duckdb.org](https://shell.duckdb.org/)
+- **Program in python** in JupyterLab or Marimo 🐍
+- **It has you** to solve CAPTCHAs, so nothing can stop it! 
+
+It is deliberately minimal. If you find any feature that can be removed, just ask!
 
 ![KKrossfire side panel screenshot](assets/kkrossfire_screenshot.png)
 
 Inspired by [badlogic's Sitegeist](https://github.com/badlogic/sitegeist), but simpler.
-
-Some use cases for the brave and brilliant:
-
-- **Dig up information** — it is happy to go site-hopping for you. It has memory of what pages it visited and what did it read there in a session.
-- **Fill out forms for you** — you better ask it not to submit automaticaly. These things are agressive :)
-- **Extract data from webpages** - it can run JS, it can examine and modify the DOM, attach event handlers, etc.
-- **Write you SQL** and run it, if you have a web-based SQL tool, like DuckDB UI 🦆
-- **Program in python** in JupyterLab or Marimo 🐍
 
 ## Setup
 
