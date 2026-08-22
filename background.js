@@ -737,7 +737,8 @@ async function callLLMStream(settings, s, onDelta) {
     if (Array.isArray(delta.tool_calls)) {
       for (const tc of delta.tool_calls) {
         const i = tc.index || 0;
-        if (!toolCalls[i]) toolCalls[i] = { id: '', function: { name: '', arguments: '' } };
+        if (!toolCalls[i]) toolCalls[i] = { id: '', type: 'function', function: { name: '', arguments: '' } };
+        if (tc.type) toolCalls[i].type = tc.type;
         if (tc.id) toolCalls[i].id = tc.id;
         if (tc.function) {
           if (tc.function.name) toolCalls[i].function.name += tc.function.name;
