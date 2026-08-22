@@ -45,7 +45,7 @@ Guidance for AI agents working on this project. LLMs can already program; these 
 For a quick build validation, run:
 
 ```bash
-bun build background.js --target browser --outdir /tmp/kkiosk-check
+bun build background.js --target browser --outdir /tmp/kkrossfire-check
 ```
 
 Harness lives in `/persist/kkrossfire/tests/` (Playwright + Chromium + Xvfb). Run headed under `xvfb-run`:

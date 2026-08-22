@@ -840,7 +840,7 @@ async function runAgent(prompt) {
 
 // ---- messaging with the side panel ----
 chrome.runtime.onConnect.addListener((p) => {
-  if (p.name !== 'kkiosk') return;
+  if (p.name !== 'kkrossfire') return;
   port = p;
   p.onDisconnect.addListener(() => { if (port === p) port = null; });
   p.onMessage.addListener(onMessage);

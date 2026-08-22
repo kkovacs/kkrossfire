@@ -33,7 +33,7 @@ let forceScroll = false; // one-shot: scroll to bottom when the user's message i
 let isFollowing = true;  // intent to follow the bottom; cleared only when the user scrolls up
 
 function connect() {
-  port = chrome.runtime.connect({ name: 'kkiosk' });
+  port = chrome.runtime.connect({ name: 'kkrossfire' });
   port.onMessage.addListener(onMessage);
   port.onDisconnect.addListener(() => { port = null; setTimeout(connect, 500); });
   port.postMessage({ type: 'get_state' });
