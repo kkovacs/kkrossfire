@@ -20,6 +20,7 @@ const els = {
 let port = null;
 let running = false;
 let hasKey = false;
+let settingsDismissed = false; // user closed settings; stop the keyless auto-open nudge
 let lastSettings = null;
 let streamingEl = null; // in-progress assistant bubble while the answer streams
 let streamText = '';
@@ -96,7 +97,9 @@ function render(msg) {
   if (msg.settings) {
     lastSettings = msg.settings;
     hasKey = !!(msg.settings.apiKey && msg.settings.apiKey.trim());
-    if (!hasKey) {
+    // First-run nudge: show settings for keyless users until they dismiss it.
+    // Never repopulate while visible — state messages must not clobber in-progress edits.
+    if (!hasKey && !settingsDismissed && els.settings.hidden) {
       populateSettings();
       els.settings.hidden = false;
     }
@@ -385,6 +388,7 @@ function saveSettings() {
   els.settingsStatus.textContent = '';
   showToast('Settings saved ✓');
   els.settings.hidden = true;
+  settingsDismissed = true; // e.g. saving an empty key must not bounce the panel back open
 }
 
 let toastTimer = null;
@@ -412,7 +416,12 @@ els.reset.addEventListener('click', () => {
   port.postMessage({ type: 'reset' });
   els.prompt.focus();
 });
-els.settingsBtn.addEventListener('click', () => { populateSettings(); els.settings.hidden = !els.settings.hidden; });
+els.settingsBtn.addEventListener('click', () => {
+  const opening = els.settings.hidden;
+  els.settings.hidden = !els.settings.hidden;
+  if (opening) populateSettings(); // refresh from saved values on open
+  else settingsDismissed = true;
+});
 els.saveSettings.addEventListener('click', saveSettings);
 els.testConnection.addEventListener('click', () => {
   if (!port) return;
