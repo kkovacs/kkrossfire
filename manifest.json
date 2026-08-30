@@ -24,8 +24,8 @@
     },
     "reset": {
       "suggested_key": {
-        "default": "Ctrl+Shift+0",
-        "mac": "Command+Shift+0"
+        "default": "Ctrl+Shift+8",
+        "mac": "Command+Shift+8"
       },
       "description": "Reset to current tab"
     }
