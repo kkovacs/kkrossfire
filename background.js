@@ -127,6 +127,7 @@ function freshState() {
     llmMessages: [],    // {role:'user'|'assistant'|'tool', ...} for the LLM
     pages: [],          // visited pages {url,title}
     workspaceTabId: null,
+    sessionId: crypto.randomUUID(), // stable per conversation; sent as x-opencode-session
     running: false,
     stop: false,
     step: 0,
@@ -149,6 +150,7 @@ async function loadState() {
   if (state) return state;
   const st = await chrome.storage.session.get('state');
   state = st.state || freshState();
+  if (!state.sessionId) state.sessionId = crypto.randomUUID(); // pre-existing storage.session
   if (state.running) { state.running = false; state.phase = null; } // SW restarted mid-run; the loop is dead
   return state;
 }
@@ -665,17 +667,17 @@ async function buildContext(s, tab) {
 }
 
 // Shared OpenAI-compatible request target: chat URL + auth headers.
-function openAiRequest(settings) {
+function openAiRequest(settings, sessionId) {
   const base = String(settings.apiUrl || DEFAULTS.apiUrl).replace(/\/+$/, '');
-  return {
-    url: base + '/chat/completions',
-    headers: {
-      'Authorization': 'Bearer ' + settings.apiKey,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://kkrossfire.local/',
-      'X-Title': 'KKrossfire',
-    },
+  const headers = {
+    'Authorization': 'Bearer ' + settings.apiKey,
+    'Content-Type': 'application/json',
+    'HTTP-Referer': 'https://kkrossfire.local/',
+    'X-Title': 'KKrossfire',
+    'User-Agent': 'KKrossfire/' + chrome.runtime.getManifest().version,
   };
+  if (sessionId) headers['x-opencode-session'] = sessionId; // stable per conversation; routing/prompt-caching hint
+  return { url: base + '/chat/completions', headers };
 }
 
 // Stream an SSE response, accumulating content and tool-call deltas.
@@ -698,7 +700,7 @@ async function callLLMStream(settings, s, onDelta) {
 
   let resp;
   try {
-    const { url, headers } = openAiRequest(settings);
+    const { url, headers } = openAiRequest(settings, s.sessionId);
     resp = await fetch(url, {
       method: 'POST',
       headers,
@@ -970,7 +972,8 @@ async function onMessage(msg) {
       }
       let out;
       try {
-        const { url, headers } = openAiRequest(cur);
+        // One-off UUID: not a conversation, but the endpoint rejects requests without the header.
+        const { url, headers } = openAiRequest(cur, crypto.randomUUID());
         // A real completion validates both the key and the model on any OpenAI-compatible provider.
         const chatResp = await fetch(url, {
           method: 'POST',
