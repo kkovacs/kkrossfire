@@ -23,7 +23,7 @@ const TOOLS = [
     type: 'function',
     function: {
       name: 'extract_text',
-      description: 'Extract readable text from the current page, or from an element matching an optional CSS selector. Returns URL, title, and up to ~8000 characters. Pass offset to read past the first chunk when truncated is true.',
+      description: 'Extract readable text from the current page, or from an element matching an optional CSS selector. Returns URL, title, and up to ~24000 characters. Pass offset to read past the first chunk when truncated is true.',
       parameters: {
         type: 'object',
         properties: {
@@ -257,7 +257,7 @@ function extractText(sel, offset) {
   const el = sel ? document.querySelector(sel) : (document.querySelector('article, main, [role="main"], #content') || document.body);
   if (!el) return { error: 'Selector matched nothing: ' + sel };
   const text = (el.innerText || '').replace(/\n{3,}/g, '\n\n');
-  const MAX = 8000;
+  const MAX = 24000;
   const start = Math.max(0, (offset | 0) || 0);
   return {
     url: location.href,
@@ -686,10 +686,13 @@ async function callLLMStream(settings, s, onDelta) {
   const tab = await getTabInfo(s);
   const body = {
     model: settings.model,
+    // Context rides at the tail (ephemeral, never stored): system + llmMessages is an
+    // append-only cacheable prefix that survives navigations; the fresh context sits
+    // next to the generation point.
     messages: [
       { role: 'system', content: settings.systemPrompt },
-      { role: 'user', content: await buildContext(s, tab) },
       ...s.llmMessages,
+      { role: 'user', content: await buildContext(s, tab) },
     ],
     tools: TOOLS,
     stream: true,
