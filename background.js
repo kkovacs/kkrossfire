@@ -1,6 +1,6 @@
 importScripts('config.js');
 
-const MAX_STEPS = 30;
+const MAX_STEPS = 90;
 const RUN_JS_TIMEOUT_MS = 15000;
 const RUN_JS_CDP_TIMEOUT_MS = RUN_JS_TIMEOUT_MS - 1000; // sync busy-loop watchdog; awaitPromise ignores it
 const PAGE_HISTORY = 15; // context reads the last 15 visited pages; cap storage to match
