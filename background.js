@@ -143,6 +143,7 @@ const TOOLS = [
 // ---- session state (mirrored in storage.session) ----
 let port = null;   // side panel connection; also keeps the service worker alive
 let state = null;
+let resetEpoch = 0; // bumped by resetSession; an in-flight run from an older epoch must not touch the new session
 
 function freshState() {
   return {
@@ -939,6 +940,11 @@ async function runAgent(prompt) {
   s.conversation.push({ role: 'user', content: prompt });
   s.llmMessages.push({ role: 'user', content: prompt });
   await commit();
+  // Reset mid-run swaps in fresh arrays on the same state object; after any await,
+  // a stale run just releases the running flag and leaves the new session alone.
+  const epoch = resetEpoch;
+  const stale = () => epoch !== resetEpoch;
+  const abandon = async () => { s.running = false; s.phase = null; await commit(); };
   try {
     while (s.step < MAX_STEPS && !s.stop) {
       if (!(await getTabInfo(s))) { // workspace tab closed mid-run → fail fast, don't let the model retry
@@ -949,29 +955,44 @@ async function runAgent(prompt) {
       s.phase = 'llm';
       await commit();
       const choice = await callLLMStream(settings, s, (chunk) => post({ type: 'delta', text: chunk }));
+      if (stale()) return abandon();
       if (choice.tool_calls && choice.tool_calls.length) {
         post({ type: 'delta_cancel' }); // discard the streamed bubble; show the text as a static message below
         if (choice.content && choice.content.trim()) {
           s.conversation.push({ role: 'assistant', content: choice.content.trim() });
         }
         s.llmMessages.push({ role: 'assistant', content: choice.content || '', tool_calls: choice.tool_calls });
+        // Every tool_call must get a matching tool message, or the next request is
+        // malformed (providers 400 on an unanswered tool_call_id) — so a stop or a
+        // throwing tool still records a result.
         for (const tc of choice.tool_calls) {
-          if (s.stop) break;
-          const result = await executeTool(s, tc.function.name, tc.function.arguments);
+          if (stale()) return abandon();
+          let result;
+          if (s.stop) {
+            result = { error: 'Not run: the user stopped the agent.' };
+          } else {
+            try {
+              result = await executeTool(s, tc.function.name, tc.function.arguments);
+            } catch (e) {
+              result = { error: String((e && e.message) || e) };
+            }
+            if (stale()) return abandon();
+          }
           s.llmMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
           await saveState();
         }
       } else {
         const answer = (choice.content || '').trim();
-        s.llmMessages.push({ role: 'assistant', content: answer });
         if (answer) await finishRun(s, answer);
         else await finishRun(s, null, '⚠️ Model returned an empty response.');
         return;
       }
     }
+    if (stale()) return abandon();
     if (s.stop) await finishRun(s, null, 'Stopped.');
     else await finishRun(s, null, 'Reached max steps (' + MAX_STEPS + ').');
   } catch (e) {
+    if (stale()) return abandon();
     if (s.stop) await finishRun(s, null, 'Stopped.');
     else await finishRun(s, null, '⚠️ Error: ' + ((e && e.message) || e));
   }
@@ -1021,6 +1042,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 async function resetSession() {
   const s = await loadState();
+  resetEpoch++;
   s.conversation = [];
   s.llmMessages = [];
   s.pages = [];

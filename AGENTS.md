@@ -9,7 +9,7 @@ Guidance for AI agents working on this project. LLMs can already program; these 
 ## Architecture (stable decisions)
 
 - **Two halves.** `sidepanel.html` / `sidepanel.js` is UI only (chat + settings). `background.js` (service worker) owns the agent loop, tool execution, and all OpenRouter calls.
-- **Agent loop.** Call the LLM with tools → execute the returned tool calls in the workspace tab → append results as `tool` messages → repeat until the model replies with plain content (no tool calls) or `MAX_STEPS`. There is no `finish` tool; "no tool calls" *is* the stop signal. Tool results live in `llmMessages`, so the conversation history *is* the memory across navigations. Do not add a separate memory store.
+- **Agent loop.** Call the LLM with tools → execute the returned tool calls in the workspace tab → append results as `tool` messages → repeat until the model replies with plain content (no tool calls) or `MAX_STEPS`. There is no `finish` tool; "no tool calls" *is* the stop signal. Invariant: every assistant `tool_calls` entry is followed by exactly one `tool` message per id — a Stop mid-batch or a throwing tool still records an `{error}` result (providers 400 on unanswered ids), and the final answer is stored once (by `finishRun`). `resetSession` bumps `resetEpoch`; an in-flight run from an older epoch abandons without writing into the fresh session. Tool results live in `llmMessages`, so the conversation history *is* the memory across navigations. Do not add a separate memory store.
 - **Context block.** Every LLM call injects, at the **tail** of the messages array (after the full history, as an ephemeral `user` message that is never stored in `llmMessages`): "Current tab: URL (title)", a page overview (description, heading outline, counts, nav links from `nav, [role="navigation"]`, suggested main-content selector), and the last visited pages (`PAGE_HISTORY`). The overview is memoized in a module-level `overviewCache` keyed by `tab.url` and recomputed only when the URL changes — that covers first-turn-on-page, `navigate`, back, and manual navigation with no per-turn injection cost and no invalidation hooks in `navigate`/`reset`. `rememberPage` caps the visited-pages trail at `PAGE_HISTORY` and dedupes consecutive same-URL reads, so `extract_text` offsets and same-page tool runs don't churn the context. Content links (e.g. search results) are deliberately *not* in the overview; the model uses `extract_links`. Staleness hole marked `XXX`: a SPA that rewrites content without changing the URL.
 - **Memory & prompt caching.** The full `llmMessages` history — every tool result included — is re-sent verbatim on every call; there is no pruning or summarization, so per-turn tokens grow with each step (bounded by `MAX_STEPS` and the `extract_text` char cap). The context block sits at the *tail* of the messages array (ephemeral, rebuilt per call), so the cacheable prefix is `system + llmMessages` — append-only, stable across navigations; only the trailing context message re-reads when the URL or visited-pages trail changes. Deliberate: don't drop/shorten tool results to save tokens — cross-page recall is the product.
 - **`extract_text` shape.** Defaults to the main content (`article, main, [role="main"], #content`, else `body`) so the cap isn't spent on nav/footer boilerplate; its `offset` param pages past the first chunk when `truncated` is true.
@@ -48,30 +48,31 @@ For a quick build validation, run:
 bun build background.js --target browser --outdir /tmp/kkrossfire-check
 ```
 
-Harness lives in `/persist/kkrossfire/tests/` (Playwright + Chromium + Xvfb). Run headed under `xvfb-run`:
+Harness lives in `/persist/kkrossfire/tests/` (Playwright + Chromium + Xvfb). Run headed under `xvfb-run`. Every test prints `PASS`/`FAIL` lines and sets a non-zero exit code on failure.
 
 ```bash
 cd /persist/kkrossfire/tests
 
-# deterministic run_js cases — no LLM/API key needed
-xvfb-run -a node test_runjs_cases.mjs
+# deterministic — no API key, no network (mock provider + fixture pages)
+xvfb-run -a node test_history.mjs        # agent-loop history: tool_call/result pairing, Stop, Reset
+xvfb-run -a node test_settings.mjs       # gear/save/persist, Test connection request shape + error path
+xvfb-run -a node test_indicators.mjs     # typing dots / busy spinner order: llm → tool → llm
+xvfb-run -a node test_csp.mjs            # run_js on a CSP-strict page (hook + full loop)
+xvfb-run -a node test_runjs_cases.mjs    # run_js eval/fallback paths
+xvfb-run -a node test_markdown_table.mjs # format() table rendering
+# also deterministic: test_tools, test_write_tools, test_message_actions
 
-# deterministic markdown-table rendering — no LLM/API key needed
-xvfb-run -a node test_markdown_table.mjs
-
-# LLM-backed tests — need OPENROUTER_API_KEY in tests/.env
-xvfb-run -a node test_runjs.mjs
-
-# CSP test — start the fixture first (serves http://127.0.0.1:8099/)
-python3 csp_server.py &
-xvfb-run -a node test_csp.mjs
+# real-model smoke tests — need OPENROUTER_API_KEY in tests/.env
+xvfb-run -a node test.mjs                # end-to-end browse + answer (optional prompt as argv[2])
+xvfb-run -a node test_runjs.mjs          # model chooses run_js, answers the page title
+xvfb-run -a node test_stream.mjs         # answer streams progressively
 ```
 
-Other `test_*.mjs` files (`test_settings`, `test_stream`, `test_indicators`) follow the same `node` pattern.
-
-- Tests read the throwaway API key from `OPENROUTER_API_KEY` in `tests/.env` (gitignored); `seed.mjs` (`seedKey`) writes it into extension storage and `test_helpers.mjs` provides `getExtensionIds(context)`.
-- `test_runjs_cases.mjs` is deterministic (no LLM): it drives the SW's `run_js` directly via the `{type:'run_js_test', code}` runtime-message hook and asserts the primary eval/fallback paths.
-- `test_markdown_table.mjs` is deterministic (no LLM): it opens `sidepanel.html` as a tab and calls the global `format()` directly, asserting on the produced table HTML and the live-DOM mount.
+- Prefer the mock for anything that doesn't need a real model. `test_helpers.mjs` provides `startMock()` — a mock OpenAI-compatible provider (scripted replies: content, tool calls, HTTP errors, latency; SSE or JSON per the request's `stream`) that records every request and also serves fixture pages — plus `seedMock(panel, mock)`, `checker(label)`, `chatMessages(panel)` and `norm()`. Real-model tests are smoke tests: assert loosely (`norm()`), never on exact prose.
+- Real-model tests read the throwaway API key from `OPENROUTER_API_KEY` in `tests/.env` (gitignored); `seed.mjs` (`seedKey`) writes it into extension storage and `test_helpers.mjs` provides `getExtensionIds(context)`.
+- `test_runjs_cases.mjs` drives the SW's `run_js` directly via the `{type:'run_js_test', code}` runtime-message hook and asserts the primary eval/fallback paths.
+- `test_markdown_table.mjs` opens `sidepanel.html` as a tab and calls the global `format()` directly, asserting on the produced table HTML and the live-DOM mount.
+- Playwright's `page.evaluate` bypasses page CSP, so it can't probe whether `eval` is blocked; `test_csp` checks enforcement with an inline `<script>` instead.
 - Load the extension with `--disable-extensions-except=<dir> --load-extension=<dir>` in a `launchPersistentContext`.
 - The real side-panel chrome UI can't be driven headlessly; open `chrome-extension://<id>/sidepanel.html` as a tab instead (same `chrome.*` access and message path).
 - Unpacked extension ID is deterministic from the absolute path: `sha256(path)` first 32 hex chars, mapped `0–f → a–p`.

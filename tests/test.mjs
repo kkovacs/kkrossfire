@@ -2,7 +2,7 @@ import { chromium } from 'playwright';
 import { rmSync, mkdirSync } from 'fs';
 import path from 'node:path';
 import { seedKey } from './seed.mjs';
-import { getExtensionIds } from './test_helpers.mjs';
+import { getExtensionIds, checker, chatMessages } from './test_helpers.mjs';
 
 const EXT_PATH = path.resolve(import.meta.dir, '..'); // extension root (tests/ lives inside it)
 const COMPUTED_ID = 'lahfjinkdcpahcannnghbemolialipfc';
@@ -59,10 +59,18 @@ try {
   await panel.waitForFunction(() => document.getElementById('stop').hidden, null, { timeout: 300000 });
   console.log('run finished ✓');
 
-  const msgs = await panel.$$eval('.msg', (els) => els.map((e) => ({ cls: e.className, text: e.innerText })));
+  const msgs = await chatMessages(panel);
   console.log('\n===== CONVERSATION =====');
-  for (const m of msgs) console.log(`\n[${m.cls.replace('msg ', '')}]`, m.text);
+  for (const m of msgs) console.log(`\n[${m.role}]`, m.text);
   console.log('\n========================');
+
+  // End-to-end smoke: a real answer, no error lines. Content check only for the default prompt.
+  const { check, done } = checker('smoke (LLM)');
+  const last = msgs[msgs.length - 1] || {};
+  check('ends with an assistant answer', last.role === 'assistant' && last.text.length > 20, last);
+  check('no error steps', !msgs.some((m) => m.role === 'step' && /⚠️|Reached max steps/.test(m.text)), msgs);
+  if (!process.argv[2]) check('answer is about example.com', /example|domain|illustrat|documentation/i.test(last.text || ''), last);
+  done();
 
   await panel.screenshot({ path: path.resolve(import.meta.dir, 'screenshot.png'), fullPage: true });
   console.log('screenshot saved to ' + path.resolve(import.meta.dir, 'screenshot.png'));

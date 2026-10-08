@@ -2,7 +2,7 @@ import { chromium } from 'playwright';
 import { rmSync, mkdirSync } from 'fs';
 import path from 'node:path';
 import { seedKey } from './seed.mjs';
-import { getExtensionIds } from './test_helpers.mjs';
+import { getExtensionIds, checker, chatMessages, norm } from './test_helpers.mjs';
 
 const EXT_PATH = path.resolve(import.meta.dir, '..'); // extension root (tests/ lives inside it)
 const UDD = path.resolve(import.meta.dir, 'profile_runjs');
@@ -36,7 +36,15 @@ await panel.click('#send');
 await panel.waitForFunction(() => !document.getElementById('stop').hidden, null, { timeout: 30000 });
 await panel.waitForFunction(() => document.getElementById('stop').hidden, null, { timeout: 120000 });
 
-const msgs = await panel.$$eval('.msg', (els) => els.map((e) => ({ cls: e.className, text: e.innerText })));
-for (const m of msgs) console.log(`\n[${m.cls.replace('msg ', '')}]`, m.text);
+const msgs = await chatMessages(panel);
+for (const m of msgs) console.log(`\n[${m.role}]`, m.text);
+
+// Real model: compare loosely (trim, case, wrapping quotes/period).
+const { check, done } = checker('run_js (LLM)');
+const last = msgs[msgs.length - 1] || {};
+check('model used run_js', msgs.some((m) => m.role === 'step' && /Running JavaScript/.test(m.text)), msgs);
+check('no error steps', !msgs.some((m) => m.role === 'step' && /⚠️/.test(m.text)), msgs);
+check('answer is the page title', last.role === 'assistant' && norm(last.text) === 'example domain', last);
+done();
 
 await context.close();
