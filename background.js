@@ -115,6 +115,29 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'user_screenshot',
+      description: 'Take a FULL-PAGE screenshot of the current tab and download it for the user (JPEG). ONLY call this when the user explicitly asks for a screenshot. You cannot view or read the screenshot back — the result is only the saved filename.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'user_write_file',
+      description: 'Save text content (markdown, JSON, CSV, ...) as a file downloaded for the user. ONLY call this when the user explicitly asks to save/export/write something. You cannot read the file back — the result is only the saved filename.',
+      parameters: {
+        type: 'object',
+        properties: {
+          filename: { type: 'string', description: 'Bare filename only, never a path (e.g. "tea-notes.md"). Unwanted characters are sanitized.' },
+          content: { type: 'string', description: 'Full file content as text.' },
+        },
+        required: ['filename', 'content'],
+      },
+    },
+  },
 ];
 
 // ---- session state (mirrored in storage.session) ----
@@ -521,6 +544,114 @@ async function toolScroll(s, tabId, direction, pixels) {
   return r || { error: 'Failed to scroll.' };
 }
 
+// ---- export tools (screenshot / write_file) ----
+// Files always land in this fixed subfolder of the user's Downloads; the model
+// only ever names the file, never a path (sanitizeFilename strips any anyway).
+const EXPORT_DIR = 'kkrossfire';
+const WRITE_FILE_MAX = 1 << 20; // 1 MiB; data-URL downloads get flaky past ~2 MiB
+
+// Shared whitelist core for user-facing names: flatten unsafe chars, keep
+// Unicode letters/marks/numbers plus ._-, collapse '_' runs, no leading dots.
+function flattenName(s) {
+  return String(s || '')
+    .replace(/\s+/g, '_')
+    .replace(/[^\p{L}\p{M}\p{N}._-]/gu, '_')
+    .replace(/_{2,}/g, '_')
+    .replace(/^\.+/, '');
+}
+
+// Truncation preserves the real extension; total length caps at 60.
+function sanitizeFilename(name) {
+  const s = flattenName(name);
+  const m = s.match(/\.([A-Za-z0-9]{1,8})$/);
+  if (!m) return (s.replace(/\.+$/, '').slice(0, 57) || 'file') + '.md';
+  const stem = s.slice(0, s.length - m[1].length - 1).replace(/\.+$/, '').slice(0, 60 - m[1].length - 1);
+  return (stem || 'file') + '.' + m[1];
+}
+
+// Screenshot host label: same whitelist, no extension logic; empty hostname
+// (data:/non-URL tabs) falls back to 'page'.
+function sanitizeHostname(host) {
+  return flattenName(host).slice(0, 40) || 'page';
+}
+
+// Full-page capture via CDP (runJsViaDebugger pattern): render the whole
+// scrollHeight even in a background tab, no active-tab theft. Fails if the
+// user has DevTools attached — same known limitation as run_js.
+async function capturePageViaDebugger(tabId) {
+  let attached = false;
+  try {
+    await chrome.debugger.attach({ tabId }, '1.3');
+    attached = true;
+    const res = await chrome.debugger.sendCommand({ tabId }, 'Page.captureScreenshot', {
+      format: 'jpeg',
+      quality: 90,
+      captureBeyondViewport: true,
+    });
+    return res.data; // base64 JPEG
+  } finally {
+    if (attached) {
+      try { await chrome.debugger.detach({ tabId }); } catch (e) { /* ignore */ }
+    }
+  }
+}
+
+// UTF-8-safe base64 (btoa is latin-1 only; TextEncoder handles the rest).
+function base64Utf8(text) {
+  let bin = '';
+  for (const b of new TextEncoder().encode(text)) bin += String.fromCharCode(b);
+  return btoa(bin);
+}
+
+async function toolScreenshot(s, tabId) {
+  await pushStep('📸 Taking full-page screenshot');
+  const tab = await chrome.tabs.get(tabId);
+  let data;
+  try {
+    data = await capturePageViaDebugger(tabId);
+  } catch (e) {
+    return { error: 'Screenshot failed: ' + String((e && e.message) || e) };
+  }
+  // tab.url can be '' (pending navigation) — keep the generic label on parse failure.
+  let host = 'page';
+  try { host = sanitizeHostname(new URL(tab.url).hostname); } catch (e) { /* not a URL */ }
+  const name = host + '-' + Date.now() + '.jpeg';
+  try {
+    const downloadId = await chrome.downloads.download({ url: 'data:image/jpeg;base64,' + data, filename: EXPORT_DIR + '/' + name, saveAs: false });
+    return {
+      ok: true,
+      downloadedAs: EXPORT_DIR + '/' + name,
+      downloadId,
+      note: 'Saved to the user\'s Downloads folder. You cannot view or read it back.',
+    };
+  } catch (e) {
+    return { error: 'Download failed: ' + String((e && e.message) || e) };
+  }
+}
+
+async function toolWriteFile(s, filename, content) {
+  const text = String(content == null ? '' : content);
+  if (text.length > WRITE_FILE_MAX) return { error: 'Content too large (' + text.length + ' chars; max ' + WRITE_FILE_MAX + ').' };
+  const name = sanitizeFilename(filename);
+  await pushStep('💾 Writing ' + name);
+  try {
+    const downloadId = await chrome.downloads.download({
+      url: 'data:text/markdown;base64,' + base64Utf8(text),
+      filename: EXPORT_DIR + '/' + name,
+      saveAs: false,
+    });
+    return {
+      ok: true,
+      downloadedAs: EXPORT_DIR + '/' + name,
+      downloadId,
+      bytes: text.length,
+      note: 'Saved to the user\'s Downloads folder. You cannot read it back.',
+    };
+  } catch (e) {
+    return { error: 'Download failed: ' + String((e && e.message) || e) };
+  }
+}
+
 // Run arbitrary JS via the DevTools protocol when the page's CSP blocks eval.
 async function runJsViaDebugger(tabId, code) {
   let attached = false;
@@ -606,6 +737,8 @@ async function executeTool(s, name, argsJson) {
     case 'fill': return toolFill(s, tabId, args.selector, args.value);
     case 'scroll': return toolScroll(s, tabId, args.direction, args.pixels);
     case 'run_js': return toolRunJs(s, tabId, args.code);
+    case 'user_screenshot': return toolScreenshot(s, tabId);
+    case 'user_write_file': return toolWriteFile(s, args.filename, args.content);
     default: return { error: 'Unknown tool: ' + name };
   }
 }

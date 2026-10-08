@@ -3,7 +3,7 @@
   "name": "KKrossfire",
   "version": "0.1.0",
   "description": "Agentic AI side panel that can browse the web for you.",
-  "permissions": ["sidePanel", "tabs", "scripting", "storage", "debugger"],
+  "permissions": ["sidePanel", "tabs", "scripting", "storage", "debugger", "downloads"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "background.js"
