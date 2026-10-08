@@ -612,7 +612,11 @@ async function toolScreenshot(s, tabId) {
   // tab.url can be '' (pending navigation) — keep the generic label on parse failure.
   let host = 'page';
   try { host = sanitizeHostname(new URL(tab.url).hostname); } catch (e) { /* not a URL */ }
-  const name = host + '-' + Date.now() + '.jpeg';
+  const d = new Date();
+  const pad = (n, w) => String(n).padStart(w || 2, '0');
+  const ts = d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' +
+    pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds()) + '-' + pad(d.getMilliseconds(), 3);
+  const name = host + '-' + ts + '.jpeg';
   try {
     const downloadId = await chrome.downloads.download({ url: 'data:image/jpeg;base64,' + data, filename: name, saveAs: false });
     return {

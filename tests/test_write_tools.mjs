@@ -94,7 +94,7 @@ try {
 
     // screenshot: full-page CDP capture downloads a timestamped JPEG.
     { name: 'screenshot downloads', tool: 'user_screenshot', args: {},
-      want: (r) => r.ok === true && /^page-\d{13}\.jpeg$/.test(r.downloadedAs) && /cannot/i.test(r.note) },
+      want: (r) => r.ok === true && /^page-\d{8}-\d{6}-\d{3}\.jpeg$/.test(r.downloadedAs) && /cannot/i.test(r.note) },
   ];
 
   let failed = 0;
