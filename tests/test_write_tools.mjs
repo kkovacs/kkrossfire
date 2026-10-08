@@ -66,23 +66,23 @@ try {
   const cases = [
     // write_file: happy path
     { name: 'write basic md', tool: 'user_write_file', args: { filename: 'tea-notes.md', content: '# Tea\n\nHoney.' },
-      want: (r) => r.ok === true && r.downloadedAs === 'kkrossfire/tea-notes.md' && r.bytes === 13 && /cannot read/i.test(r.note) },
+      want: (r) => r.ok === true && r.downloadedAs === 'tea-notes.md' && r.bytes === 13 && /cannot read/i.test(r.note) },
 
     // Paths are forbidden: separators flatten, nothing escapes the fixed folder.
     { name: 'path flattening', tool: 'user_write_file', args: { filename: '../../etc/passwd.json', content: '{}' },
-      want: (r) => r.ok === true && !r.downloadedAs.slice('kkrossfire/'.length).includes('/') && r.downloadedAs.startsWith('kkrossfire/') },
+      want: (r) => r.ok === true && !r.downloadedAs.includes('/') && /^[A-Za-z0-9._-]+$/.test(r.downloadedAs) },
 
     // European filenames survive; emoji/whitespace flatten to '_'.
     { name: 'accented chars kept', tool: 'user_write_file', args: { filename: 'café-übersicht.md', content: 'x' },
-      want: (r) => r.ok === true && r.downloadedAs === 'kkrossfire/café-übersicht.md' },
+      want: (r) => r.ok === true && r.downloadedAs === 'café-übersicht.md' },
     { name: 'emoji + spaces flatten', tool: 'user_write_file', args: { filename: 'my 🤯 notes.md', content: 'x' },
-      want: (r) => r.ok === true && r.downloadedAs === 'kkrossfire/my_notes.md' },
+      want: (r) => r.ok === true && r.downloadedAs === 'my_notes.md' },
     { name: 'leading dots stripped', tool: 'user_write_file', args: { filename: '...hidden.md', content: 'x' },
-      want: (r) => r.ok === true && r.downloadedAs === 'kkrossfire/hidden.md' },
+      want: (r) => r.ok === true && r.downloadedAs === 'hidden.md' },
     { name: 'missing extension → .md', tool: 'user_write_file', args: { filename: 'export', content: 'x' },
-      want: (r) => r.ok === true && r.downloadedAs === 'kkrossfire/export.md' },
+      want: (r) => r.ok === true && r.downloadedAs === 'export.md' },
     { name: 'name capped, ext kept', tool: 'user_write_file', args: { filename: 'x'.repeat(100) + '.txt', content: 'x' },
-      want: (r) => r.ok === true && r.downloadedAs === 'kkrossfire/' + 'x'.repeat(56) + '.txt' },
+      want: (r) => r.ok === true && r.downloadedAs === 'x'.repeat(56) + '.txt' },
 
     // Guardrail: oversized content fails fast, nothing is written.
     { name: 'content over cap rejected', tool: 'user_write_file', args: { filename: 'big.md', content: 'a'.repeat(WRITE_FILE_MAX + 10) },
@@ -94,7 +94,7 @@ try {
 
     // screenshot: full-page CDP capture downloads a timestamped JPEG.
     { name: 'screenshot downloads', tool: 'user_screenshot', args: {},
-      want: (r) => r.ok === true && /^kkrossfire\/page-\d{13}\.jpeg$/.test(r.downloadedAs) && /cannot/i.test(r.note) },
+      want: (r) => r.ok === true && /^page-\d{13}\.jpeg$/.test(r.downloadedAs) && /cannot/i.test(r.note) },
   ];
 
   let failed = 0;
@@ -113,7 +113,7 @@ try {
   // and un-flagged, matched by the download id the tools report back.
   const diskChecks = [['tea-notes.md', (await toolCall('user_write_file', { filename: 'tea-disk.md', content: 'disk check' })).downloadId]];
   const shot = await toolCall('user_screenshot', {});
-  if (shot.ok) diskChecks.push([shot.downloadedAs.split('/')[1], shot.downloadId]);
+  if (shot.ok) diskChecks.push([shot.downloadedAs, shot.downloadId]);
   else { failed++; console.log('✗ screenshot re-run for disk check:', JSON.stringify(shot).slice(0, 200)); }
 
   for (const [label, id] of diskChecks) {

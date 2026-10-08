@@ -544,10 +544,7 @@ async function toolScroll(s, tabId, direction, pixels) {
   return r || { error: 'Failed to scroll.' };
 }
 
-// ---- export tools (screenshot / write_file) ----
-// Files always land in this fixed subfolder of the user's Downloads; the model
-// only ever names the file, never a path (sanitizeFilename strips any anyway).
-const EXPORT_DIR = 'kkrossfire';
+// ---- export tools (user_screenshot / user_write_file) ----
 const WRITE_FILE_MAX = 1 << 20; // 1 MiB; data-URL downloads get flaky past ~2 MiB
 
 // Shared whitelist core for user-facing names: flatten unsafe chars, keep
@@ -617,10 +614,10 @@ async function toolScreenshot(s, tabId) {
   try { host = sanitizeHostname(new URL(tab.url).hostname); } catch (e) { /* not a URL */ }
   const name = host + '-' + Date.now() + '.jpeg';
   try {
-    const downloadId = await chrome.downloads.download({ url: 'data:image/jpeg;base64,' + data, filename: EXPORT_DIR + '/' + name, saveAs: false });
+    const downloadId = await chrome.downloads.download({ url: 'data:image/jpeg;base64,' + data, filename: name, saveAs: false });
     return {
       ok: true,
-      downloadedAs: EXPORT_DIR + '/' + name,
+      downloadedAs: name,
       downloadId,
       note: 'Saved to the user\'s Downloads folder. You cannot view or read it back.',
     };
@@ -637,12 +634,12 @@ async function toolWriteFile(s, filename, content) {
   try {
     const downloadId = await chrome.downloads.download({
       url: 'data:text/markdown;base64,' + base64Utf8(text),
-      filename: EXPORT_DIR + '/' + name,
+      filename: name,
       saveAs: false,
     });
     return {
       ok: true,
-      downloadedAs: EXPORT_DIR + '/' + name,
+      downloadedAs: name,
       downloadId,
       bytes: text.length,
       note: 'Saved to the user\'s Downloads folder. You cannot read it back.',
